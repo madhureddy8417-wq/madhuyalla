@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Language, Location } from '../types';
 import { UI_STRINGS, MOCK_LOCATIONS } from '../constants';
+import { GpsIcon } from './icons';
+import { reverseGeocode } from '../services/geminiService';
 
 // A reusable autocomplete input component
 const AutocompleteInput = ({ 
@@ -80,6 +82,7 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
   const [mandal, setMandal] = useState('');
   const [district, setDistrict] = useState('');
   const [error, setError] = useState('');
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   
   // FIX: Initialize useRef with null to provide an initial argument.
   const prevLangRef = useRef<Language | null>(null);
@@ -112,6 +115,37 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
         setError('Please fill all fields.');
     }
   }
+  
+  const handleUseCurrentLocation = async () => {
+    setIsFetchingLocation(true);
+    setError('');
+
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser.');
+      setIsFetchingLocation(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          const locationData = await reverseGeocode({ latitude, longitude }, language);
+          setDistrict(locationData.district);
+          setMandal(locationData.mandal);
+          setVillage(locationData.village);
+        } catch (e: any) {
+          setError(e.message || 'Could not determine location. Please enter manually.');
+        } finally {
+          setIsFetchingLocation(false);
+        }
+      },
+      () => {
+        setError('Unable to retrieve your location. Please enable location services and try again.');
+        setIsFetchingLocation(false);
+      }
+    );
+  };
 
   return (
     <header className="bg-white/80 backdrop-blur-md shadow-md sticky top-0 z-20">
@@ -132,7 +166,26 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
             <AutocompleteInput label={T.district} value={district} onChange={setDistrict} suggestions={districtSuggestions} />
             <AutocompleteInput label={T.mandal} value={mandal} onChange={setMandal} suggestions={mandalSuggestions} />
             <AutocompleteInput label={T.village} value={village} onChange={setVillage} suggestions={villageSuggestions} />
-            <button type="submit" className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 h-10">{T.setLocation}</button>
+            <div className="flex gap-3 w-full sm:w-auto">
+                <button
+                    type="button"
+                    onClick={handleUseCurrentLocation}
+                    disabled={isFetchingLocation}
+                    title={T.useCurrentLocation}
+                    className="w-full sm:w-auto bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded-lg shadow-sm transition duration-300 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center h-10"
+                >
+                    {isFetchingLocation ? (
+                        <svg className="animate-spin h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    ) : (
+                        <GpsIcon />
+                    )}
+                    <span className="ml-2 sm:hidden md:inline">{isFetchingLocation ? T.fetchingLocation : T.useCurrentLocation}</span>
+                </button>
+                <button type="submit" className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 h-10">{T.setLocation}</button>
+            </div>
         </form>
         {error && <p className="text-red-500 text-xs mt-1 text-center sm:text-left">{error}</p>}
       </div>

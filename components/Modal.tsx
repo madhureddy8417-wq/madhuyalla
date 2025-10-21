@@ -1,13 +1,141 @@
+
 import React, { useEffect, useRef } from 'react';
+import type { ModalType, SuitableCropInfo, MarketInfo, GovernmentScheme, FarmingMaterial } from '../types';
+import { ExportIcon } from './icons';
+
+// Declare global variables from CDN scripts
+declare const html2canvas: any;
+declare const jspdf: any;
+
+// --- EXPORT LOGIC ---
+const escapeCsvField = (field: any): string => {
+  const str = String(field ?? '');
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+const createCsvContent = (data: any, modalType: ModalType): string => {
+    let headers: string[] = [];
+    let csvData: any[] = [];
+
+    switch (modalType) {
+        case 'soil':
+            headers = ['Crop Name', 'Suitability', 'Sowing Season', 'Water Requirement', 'Potential Yield', 'Avg Market Price'];
+            csvData = (data as SuitableCropInfo[]).map(item => ({
+                cropName: item.cropName,
+                suitability: item.suitability,
+                sowingSeason: item.sowingSeason,
+                waterRequirement: item.waterRequirement,
+                potentialYield: item.potentialYield,
+                avgMarketPrice: item.avgMarketPrice,
+            }));
+            break;
+        case 'market':
+            headers = ['Market Name', 'Distance', 'Crop Name', 'Demand', 'Price Per Kg', 'Price Trend'];
+            csvData = (data as MarketInfo[]).flatMap(market => 
+                market.availableCrops.map(crop => ({
+                    marketName: market.marketName,
+                    distance: market.distance,
+                    cropName: crop.cropName,
+                    demand: crop.demand,
+                    pricePerKg: crop.pricePerKg,
+                    priceTrend: crop.priceTrend,
+                }))
+            );
+            break;
+        case 'schemes':
+            headers = ['Name', 'Description', 'Eligibility', 'Application Deadline', 'Link'];
+            csvData = (data as GovernmentScheme[]).map(item => ({
+                name: item.name,
+                description: item.description,
+                eligibility: item.eligibility,
+                applicationDeadline: item.applicationDeadline,
+                link: item.link,
+            }));
+            break;
+        case 'materials':
+            headers = ['Name', 'Description', 'Usage', 'Estimated Price', 'Local Sourcing'];
+            csvData = (data as FarmingMaterial[]).map(item => ({
+                name: item.name,
+                description: item.description,
+                usage: item.usage,
+                estimatedPrice: item.estimatedPrice,
+                localSourcing: item.localSourcing,
+            }));
+            break;
+        default:
+            return '';
+    }
+
+    const headerRow = headers.map(escapeCsvField).join(',');
+    const dataRows = csvData.map(row => headers.map(header => {
+        // Create a key from the header that is likely to match a property in the row object
+        const key = Object.keys(row).find(k => k.toLowerCase() === header.replace(/[^a-zA-Z0-9]/g, '').toLowerCase());
+        return escapeCsvField(key ? row[key] : '');
+    }).join(',')).join('\n');
+    
+    return `${headerRow}\n${dataRows}`;
+};
+
+const downloadFile = (content: string, fileName: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+};
+
+const exportToCsv = (data: any, modalType: ModalType, fileName: string) => {
+    const csvContent = createCsvContent(data, modalType);
+    if (csvContent) {
+        downloadFile(csvContent, `${fileName}.csv`, 'text/csv;charset=utf-8;');
+    }
+};
+
+export const exportToPdf = async (elementId: string, fileName: string) => {
+    try {
+        const { jsPDF } = jspdf;
+        const input = document.getElementById(elementId);
+        if (!input) {
+            console.error(`Element with id "${elementId}" not found.`);
+            return;
+        }
+
+        const canvas = await html2canvas(input, {
+          scale: 2, // Improve resolution
+          useCORS: true
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF({
+            orientation: 'p',
+            unit: 'px',
+            format: [canvas.width, canvas.height]
+        });
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save(`${fileName}.pdf`);
+    } catch (error) {
+        console.error("Error exporting to PDF:", error);
+    }
+};
+
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  modalData?: any;
+  activeModal?: ModalType | null;
 }
 
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, modalData, activeModal }) => {
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,9 +166,24 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
     return null;
   }
 
+  const handleExportPdf = () => {
+      exportToPdf('modal-content-to-export', title.replace(/ /g, '_'));
+  };
+  
+  const handleExportCsv = () => {
+    if (modalData && activeModal) {
+      exportToCsv(modalData, activeModal, title.replace(/ /g, '_'));
+    }
+  };
+
+  const isCsvExportable = activeModal && ['soil', 'market', 'schemes', 'materials'].includes(activeModal);
+  const showExportButtons = modalData && activeModal !== 'assistant' && activeModal !== 'map' && activeModal !== 'water';
+
+  const modalSizeClass = (activeModal === 'map' || activeModal === 'water') ? 'max-w-4xl' : 'max-w-md';
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">
-      <div ref={modalRef} className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+      <div ref={modalRef} className={`bg-white rounded-lg shadow-xl w-full ${modalSizeClass} max-h-[90vh] flex flex-col`}>
         <div className="flex justify-between items-center p-4 border-b">
           <h2 className="text-xl font-bold text-gray-800">{title}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-800">
@@ -49,9 +192,23 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
             </svg>
           </button>
         </div>
-        <div className="p-6 overflow-y-auto">
+        <div id="modal-content-to-export" className="p-6 overflow-y-auto">
           {children}
         </div>
+        {showExportButtons && (
+          <div className="flex justify-end items-center p-4 border-t gap-2">
+            <button onClick={handleExportPdf} className="flex items-center gap-2 text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-3 rounded-lg transition duration-300">
+                <ExportIcon />
+                <span>Export PDF</span>
+            </button>
+            {isCsvExportable && (
+                <button onClick={handleExportCsv} className="flex items-center gap-2 text-sm bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-3 rounded-lg transition duration-300">
+                    <ExportIcon />
+                    <span>Export CSV</span>
+                </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
