@@ -1,5 +1,8 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { UI_STRINGS, MOCK_LOCATIONS } from '../constants';
+// FIX: The 'MOCK_LOCATIONS' export does not exist. This component appears to be for 'agri' mode,
+// so AGRI_MOCK_LOCATIONS is imported and aliased to MOCK_LOCATIONS.
+import { UI_STRINGS, AGRI_MOCK_LOCATIONS as MOCK_LOCATIONS } from '../constants';
 import type { Language } from '../types';
 
 interface LocationFormProps {

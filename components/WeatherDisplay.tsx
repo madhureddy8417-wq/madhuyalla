@@ -9,7 +9,12 @@ import {
     HumidityIcon, 
     RainChanceIcon, 
     WindSpeedIcon,
-    UvIndexIcon
+    UvIndexIcon,
+    AdvisoryIcon,
+    SunriseIcon,
+    SunsetIcon,
+    WindDirectionIcon,
+    FeelsLikeIcon
 } from './icons';
 
 interface WeatherDisplayProps {
@@ -19,18 +24,20 @@ interface WeatherDisplayProps {
   language: Language;
 }
 
-const WeatherIcon: React.FC<{ condition: string; size?: string }> = ({ condition, size = 'h-10 w-10' }) => {
+const WeatherIcon: React.FC<{ condition: string; className?: string }> = ({ condition, className = 'h-10 w-10' }) => {
   const normalizedCondition = condition.toLowerCase();
+  const iconProps = { className };
+
   if (normalizedCondition.includes('sun') || normalizedCondition.includes('clear')) {
-    return <SunnyIcon />;
+    return <SunnyIcon {...iconProps} />;
   }
   if (normalizedCondition.includes('cloud')) {
-    return <PartlyCloudyIcon />;
+    return <PartlyCloudyIcon {...iconProps} />;
   }
   if (normalizedCondition.includes('rain') || normalizedCondition.includes('shower') || normalizedCondition.includes('storm')) {
-    return <RainyIcon />;
+    return <RainyIcon {...iconProps} />;
   }
-  return <CloudyIcon />;
+  return <CloudyIcon {...iconProps} />;
 };
 
 const WeatherInfoItem: React.FC<{ icon: React.ReactNode; label: string; value: string }> = ({ icon, label, value }) => (
@@ -44,28 +51,48 @@ const WeatherInfoItem: React.FC<{ icon: React.ReactNode; label: string; value: s
 );
 
 const WeatherSkeleton: React.FC = () => (
-    <div className="bg-white/70 backdrop-blur-sm p-4 rounded-2xl shadow-md border border-gray-200 animate-pulse">
+    <div className="bg-white/70 backdrop-blur-sm p-4 rounded-2xl shadow-md border border-gray-200 animate-pulse space-y-4">
+        {/* Current Weather Skeleton */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-gray-300 rounded-full"></div>
+                <div className="w-16 h-16 bg-gray-300 rounded-full"></div>
                 <div>
-                    <div className="h-8 w-20 bg-gray-300 rounded-md mb-1"></div>
-                    <div className="h-4 w-28 bg-gray-300 rounded-md"></div>
+                    <div className="h-8 w-24 bg-gray-300 rounded-md mb-2"></div>
+                    <div className="h-4 w-32 bg-gray-300 rounded-md"></div>
                 </div>
             </div>
-            <div className="h-6 w-32 bg-gray-300 rounded-md sm:hidden"></div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
-                <div className="h-10 w-20 bg-gray-300 rounded-md"></div>
-                <div className="h-10 w-20 bg-gray-300 rounded-md"></div>
-                <div className="h-10 w-20 bg-gray-300 rounded-md"></div>
-                <div className="h-10 w-20 bg-gray-300 rounded-md"></div>
+                {[...Array(8)].map((_, i) => <div key={i} className="h-10 w-24 bg-gray-300 rounded-md"></div>)}
             </div>
         </div>
-        <div className="border-t my-4 border-gray-200"></div>
-        <div className="flex justify-between gap-4">
-            <div className="flex-1 h-24 bg-gray-300 rounded-lg"></div>
-            <div className="flex-1 h-24 bg-gray-300 rounded-lg"></div>
-            <div className="flex-1 h-24 bg-gray-300 rounded-lg"></div>
+
+        {/* Advisory Skeleton */}
+        <div className="bg-gray-200 p-4 rounded-lg">
+            <div className="h-5 w-40 bg-gray-300 rounded-md mb-3"></div>
+            <div className="space-y-2">
+                <div className="h-4 w-full bg-gray-300 rounded-md"></div>
+                <div className="h-4 w-5/6 bg-gray-300 rounded-md"></div>
+            </div>
+        </div>
+        
+        {/* Hourly Skeleton */}
+        <div>
+            <div className="h-5 w-32 bg-gray-300 rounded-md mb-3"></div>
+            <div className="flex space-x-4 overflow-hidden">
+                {[...Array(8)].map((_, i) => (
+                    <div key={i} className="flex-shrink-0 w-20 h-28 bg-gray-200 rounded-lg"></div>
+                ))}
+            </div>
+        </div>
+
+        {/* Daily Skeleton */}
+        <div>
+            <div className="h-5 w-32 bg-gray-300 rounded-md mb-3"></div>
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                {[...Array(5)].map((_, i) => (
+                    <div key={i} className="h-24 bg-gray-200 rounded-lg"></div>
+                ))}
+            </div>
         </div>
     </div>
 );
@@ -77,7 +104,7 @@ const WeatherDisplay: React.FC<WeatherDisplayProps> = ({ data, isLoading, error,
   if (isLoading) {
     return (
         <div className="mb-8">
-            <h2 className="text-xl font-bold text-green-800 mb-3">{T.fetchingWeather}</h2>
+            <h2 className="text-2xl font-bold text-green-800 mb-3">{T.fetchingWeather}</h2>
             <WeatherSkeleton />
         </div>
     );
@@ -95,47 +122,79 @@ const WeatherDisplay: React.FC<WeatherDisplayProps> = ({ data, isLoading, error,
     return null;
   }
 
-  const { current, forecast } = data;
+  const { current, hourly, forecast, agriculturalAdvisory } = data;
 
   return (
     <div className="mb-8">
-        <div className="bg-white/70 backdrop-blur-sm p-4 rounded-2xl shadow-md border border-gray-200">
+        <div className="bg-white/70 backdrop-blur-sm p-4 rounded-2xl shadow-md border border-gray-200 space-y-6">
             {/* Current Weather */}
-            <h2 className="text-xl font-bold text-green-800 mb-3">{T.currentWeather}</h2>
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                    <WeatherIcon condition={current.condition} />
-                    <div>
-                        <p className="text-4xl font-bold text-gray-800">{current.temperature}</p>
-                        <p className="text-gray-600">{current.condition}</p>
+            <div>
+                <h2 className="text-xl font-bold text-green-800 mb-3">{T.currentWeather}</h2>
+                <div className="flex flex-col lg:flex-row items-start justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                        <WeatherIcon condition={current.condition} className="w-16 h-16" />
+                        <div>
+                            <p className="text-4xl font-bold text-gray-800">{current.temperature}</p>
+                            <p className="text-gray-600 font-medium">{current.condition}</p>
+                        </div>
                     </div>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 sm:gap-x-6 gap-y-2">
-                   <WeatherInfoItem icon={<HumidityIcon />} label={T.humidity} value={current.humidity} />
-                   <WeatherInfoItem icon={<RainChanceIcon />} label={T.rain} value={current.precipitationProbability} />
-                   <WeatherInfoItem icon={<WindSpeedIcon />} label={T.wind} value={current.windSpeed} />
-                   <WeatherInfoItem icon={<UvIndexIcon />} label={T.uvIndex} value={current.uvIndex} />
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
+                       <WeatherInfoItem icon={<FeelsLikeIcon />} label={T.feelsLike} value={current.feelsLike} />
+                       <WeatherInfoItem icon={<HumidityIcon />} label={T.humidity} value={current.humidity} />
+                       <WeatherInfoItem icon={<RainChanceIcon />} label={T.rain} value={current.precipitationProbability} />
+                       <WeatherInfoItem icon={<WindSpeedIcon />} label={T.wind} value={current.windSpeed} />
+                       <WeatherInfoItem icon={<WindDirectionIcon />} label={T.windDirection} value={current.windDirection} />
+                       <WeatherInfoItem icon={<UvIndexIcon />} label={T.uvIndex} value={current.uvIndex} />
+                       <WeatherInfoItem icon={<SunriseIcon />} label={T.sunrise} value={current.sunrise} />
+                       <WeatherInfoItem icon={<SunsetIcon />} label={T.sunset} value={current.sunset} />
+                    </div>
                 </div>
             </div>
 
-            {/* Forecast */}
-            <div className="border-t my-4 border-gray-200"></div>
-            <h2 className="text-xl font-bold text-green-800 mb-3">{T.forecast}</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {forecast.map((day, index) => (
-                    <div key={index} className="bg-green-50/50 p-3 rounded-lg flex items-center justify-between sm:flex-col sm:items-center sm:text-center">
-                        <div className="flex items-center sm:flex-col gap-2">
-                             <WeatherIcon condition={day.condition} />
-                             <div>
-                                <p className="font-bold text-gray-800">{day.day}</p>
-                                <p className="text-sm text-gray-600 hidden sm:block">{day.condition}</p>
+            {/* Agricultural Advisory */}
+            <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
+                <h2 className="text-xl font-bold text-yellow-800 mb-2 flex items-center gap-2">
+                    <AdvisoryIcon />
+                    {T.agriculturalAdvisory}
+                </h2>
+                <ul className="list-disc list-inside ml-2 space-y-1 text-yellow-900">
+                    {agriculturalAdvisory.map((tip, index) => <li key={index}>{tip}</li>)}
+                </ul>
+            </div>
+            
+            {/* Hourly Forecast */}
+            <div>
+                <h2 className="text-xl font-bold text-green-800 mb-3">{T.hourlyForecast}</h2>
+                <div className="flex space-x-3 overflow-x-auto pb-3 -mb-3">
+                    {hourly.map((hour, index) => (
+                        <div key={index} className="flex-shrink-0 bg-green-50/60 p-3 rounded-lg flex flex-col items-center text-center w-24">
+                            <p className="font-bold text-sm text-gray-800">{hour.time}</p>
+                            <WeatherIcon condition={hour.condition} className="w-8 h-8 my-1" />
+                            <p className="font-semibold text-gray-700">{hour.temperature}</p>
+                            <div className="flex items-center text-xs text-blue-600 mt-1">
+                                <HumidityIcon className="w-3 h-3 mr-1" />
+                                <span>{hour.precipitationProbability}</span>
                             </div>
                         </div>
-                        <p className="font-semibold text-gray-700">
-                            {day.maxTemp} / <span className="text-gray-500">{day.minTemp}</span>
-                        </p>
-                    </div>
-                ))}
+                    ))}
+                </div>
+            </div>
+
+            {/* Daily Forecast */}
+            <div>
+                <h2 className="text-xl font-bold text-green-800 mb-3">{T.forecast}</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+                    {forecast.map((day, index) => (
+                        <div key={index} className="bg-green-50/60 p-3 rounded-lg flex flex-col items-center text-center space-y-1">
+                            <p className="font-bold text-gray-800">{day.day}</p>
+                            <WeatherIcon condition={day.condition} className="w-9 h-9" />
+                            <p className="text-sm text-gray-600">{day.condition}</p>
+                            <p className="font-semibold text-gray-700 text-sm">
+                                {day.maxTemp} / <span className="text-gray-500">{day.minTemp}</span>
+                            </p>
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
     </div>

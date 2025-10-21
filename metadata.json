@@ -1,6 +1,6 @@
 {
-  "name": "AGRIGUIDE (' .. ')",
-  "description": "An AI-powered farmer assistance app that provides detailed reports on soil, weather, crops, and government schemes based on location. Supports multiple languages including Telugu.",
+  "name": "AGRI/AQUAGUIDE",
+  "description": "An AI-powered assistance app for farmers and aqua-culturists that provides detailed reports on soil, water, crops, fish species, weather, and government schemes based on location. Supports multiple languages including Telugu.",
   "requestFramePermissions": [
     "geolocation"
   ]

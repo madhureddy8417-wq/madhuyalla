@@ -20,11 +20,29 @@ const AnimatedFarmer: React.FC = () => {
           .tablet-screen-animate {
             animation: screen-glow-opacity 2.5s ease-in-out infinite;
           }
+           @keyframes swim {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            25% { transform: translate(10px, -5px) rotate(5deg); }
+            50% { transform: translate(20px, 0) rotate(0deg); }
+            75% { transform: translate(10px, 5px) rotate(-5deg); }
+            100% { transform: translate(0, 0) rotate(0deg); }
+          }
+          .fish-animate {
+            animation: swim 4s ease-in-out infinite;
+          }
         `}
       </style>
       <div className="farmer-animate">
         <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
             <g>
+                {/* Fish */}
+                <g className="fish-animate" transform="translate(10, 140)">
+                   <path d="M15,5 C25,0 35,0 45,5 C50,7.5 50,12.5 45,15 C35,20 25,20 15,15 C10,12.5 10,7.5 15,5 Z" fill="#3B82F6" />
+                   <path d="M45,5 L55,0 L55,20 L45,15 Z" fill="#60A5FA" />
+                   <circle cx="20" cy="7" r="2" fill="white" />
+                   <circle cx="20" cy="7" r="1" fill="black" />
+                </g>
+
                 {/* Ground */}
                 <ellipse cx="100" cy="170" rx="60" ry="10" fill="#A3C1AD" />
 

@@ -1,28 +1,37 @@
+
+
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, Chat, GenerateContentResponse } from "@google/genai";
+// FIX: Make imports type-specific for clarity and correctness.
+import { GoogleGenAI, type Chat, type GenerateContentResponse } from "@google/genai";
 import Header from './components/Header';
 import Modal from './components/Modal';
 import WeatherDisplay from './components/WeatherDisplay';
 import InteractiveMap from './components/InteractiveMap';
 import WaterReportDisplay from './components/WaterReportDisplay';
-import { DoctorIcon, MarketIcon, SchemeIcon, SoilIcon, AIAssistantIcon, FarmingMaterialsIcon, FertilizerShopsIcon, GovLinksIcon, TransportIcon, SatelliteIcon, ColdStorageIcon, MarketYardIcon, WaterIcon, DroneIcon } from './components/icons';
-import { UI_STRINGS } from './constants';
-import { getSuitableCropInfo, analyzeCropImage, getMarketInsights, getGovernmentSchemes, getFarmingMaterialsInfo, getNearbyFertilizerShops, getGovLinksAndSubsidies, getNearbyTransportation, getVillageMapInfo, getNearbyColdStorages, getNearbyMarketYards, getNearbyWaterResources, getWeatherForecast, getDroneDeliveryServices } from './services/geminiService';
-import type { Language, Location, SuitableCropInfo, DiseaseAnalysis, MarketInfo, GovernmentScheme, ModalType, FarmingMaterial, ChatMessage, GroundingSource, WeatherReport, CropMarketData, VillageMapData, WaterResourceReport } from './types';
+import { UI_STRINGS, FEATURES } from './constants';
+import * as gemini from './services/geminiService';
+// FIX: Remove non-existent import of GenerateContentResponse from local types.
+import type { Language, Location, ModalType, ChatMessage, WeatherReport, VillageMapData, WaterResourceReport, SuitableCropInfo, SuitableSpeciesInfo, MarketInfo, AquaMarketInfo, GovernmentScheme, AquaScheme, FarmingMaterial, AquaFarmingMaterial, DiseaseAnalysis, FishDiseaseAnalysis, CropMarketData, AquaMarketData } from './types';
 import HomePage from './components/HomePage';
-import { CropYieldChart, CropPriceChart, MarketPriceChart } from './components/charts';
+import { YieldChart, PriceChart, MarketPriceChart } from './components/charts';
 
-const FeatureCard = ({ icon, title, onClick }: { icon: React.ReactNode, title: string, onClick: () => void }) => (
-  <button onClick={onClick} className="bg-white p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 transition-all hover:shadow-xl hover:border-green-300 hover:-translate-y-1 text-center flex flex-col items-center justify-center space-y-3">
-    <div className="bg-green-100 p-4 rounded-full">
-      {icon}
-    </div>
-    <h3 className="text-sm sm:text-base font-bold text-green-800">{title}</h3>
-  </button>
-);
+type AppMode = 'agri' | 'aqua';
 
+// FIX: Correct the onClick prop type to accept an async function, and define props with React.FC to allow for 'key' prop.
+const FeatureCard: React.FC<{ icon: React.ReactNode, title: string, onClick: () => Promise<void> }> = ({ icon, title, onClick }) => {
+  const IconComponent = icon as React.ElementType;
+  return (
+    <button onClick={onClick} className="bg-white p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 transition-all hover:shadow-xl hover:border-green-300 hover:-translate-y-1 text-center flex flex-col items-center justify-center space-y-3">
+      <div className="bg-green-100 p-4 rounded-full">
+        <IconComponent />
+      </div>
+      <h3 className="text-sm sm:text-base font-bold text-green-800">{title}</h3>
+    </button>
+  );
+};
 
 const App: React.FC = () => {
+  const [appMode, setAppMode] = useState<AppMode>('agri');
   const [language, setLanguage] = useState<Language>('english');
   const [location, setLocation] = useState<Location | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,8 +63,7 @@ const App: React.FC = () => {
     }
   }, [chatHistory]);
 
-  const handleLanguageChange = (lang: Language) => {
-    setLanguage(lang);
+  const resetState = () => {
     setLocation(null);
     setError(null);
     setActiveModal(null);
@@ -66,18 +74,27 @@ const App: React.FC = () => {
     setWeatherError(null);
   };
 
+  const handleLanguageChange = (lang: Language) => {
+    setLanguage(lang);
+    resetState();
+  };
+
+  const handleModeChange = (mode: AppMode) => {
+    setAppMode(mode);
+    resetState();
+  };
+
   const handleLocationSet = async (loc: Location) => {
     setLocation(loc);
     setActiveModal(null);
     setModalData(null);
     setError(null);
     
-    // Fetch weather data
     setWeatherData(null);
     setWeatherError(null);
     setIsWeatherLoading(true);
     try {
-        const data = await getWeatherForecast(loc, language);
+        const data = await gemini.getWeatherForecast(loc, language);
         setWeatherData(data);
     } catch (e) {
         setWeatherError(T.weatherError);
@@ -94,96 +111,86 @@ const App: React.FC = () => {
     setError(null);
     setModalData(null);
 
-    const groundedTypes: ModalType[] = ['shops', 'transport', 'coldstorage', 'marketyard', 'drone'];
-
     try {
       let data;
-      if (groundedTypes.includes(type)) {
-          const fetchGroundedData = async (coords: {latitude: number, longitude: number} | null) => {
-              let promise;
-              switch(type) {
-                case 'shops': promise = getNearbyFertilizerShops(location, language, coords); break;
-                case 'transport': promise = getNearbyTransportation(location, language, coords); break;
-                case 'coldstorage': promise = getNearbyColdStorages(location, language, coords); break;
-                case 'marketyard': promise = getNearbyMarketYards(location, language, coords); break;
-                case 'drone': promise = getDroneDeliveryServices(location, language, coords); break;
-              }
+      // Handle special cases first
+      if (type === 'doctor') {
+        setImageFile(null);
+        setImagePreview(null);
+        setIsModalLoading(false);
+        return;
+      }
+      if (type === 'assistant') {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const systemInstruction = appMode === 'agri'
+          ? `You are a helpful AI assistant for farmers in Andhra Pradesh, India. Your name is AGRIGUIDE. Provide concise, practical advice in ${language}.`
+          : `You are a helpful AI expert for aquaculture (fish and shrimp farming) in Andhra Pradesh, India. Your name is AQUAGUIDE. Provide concise, practical advice in ${language}.`;
+        const newChat = ai.chats.create({ model: 'gemini-2.5-flash', config: { systemInstruction } });
+        setChat(newChat);
+        setChatHistory([]);
+        setUserMessage('');
+        setIsModalLoading(false);
+        return;
+      }
 
-              try {
-                const result = await promise;
-                setModalData(result);
-              } catch(e: any) {
-                setError(e.message || "An unknown error occurred.");
-              } finally {
-                setIsModalLoading(false);
-              }
+      // Map feature type to the correct service function
+      const serviceMap: { [key in AppMode]: { [key: string]: Function } } = {
+        agri: {
+          soil: gemini.getSuitableCropInfo,
+          market: gemini.getMarketInsights,
+          schemes: gemini.getGovernmentSchemes,
+          materials: gemini.getFarmingMaterialsInfo,
+          shops: gemini.getNearbyShops,
+          links: gemini.getGovLinksAndSubsidies,
+          transport: gemini.getNearbyTransportation,
+          marketyard: gemini.getNearbyMarketYards,
+          drone: gemini.getDroneDeliveryServices,
+        },
+        aqua: {
+          soil: gemini.getSuitableSpeciesInfo,
+          market: gemini.getAquaMarketInsights,
+          schemes: gemini.getAquaGovernmentSchemes,
+          materials: gemini.getAquaFarmingMaterialsInfo,
+          shops: gemini.getNearbyShops,
+          links: gemini.getGovLinksAndSubsidies,
+          transport: gemini.getNearbyTransportation,
+          marketyard: gemini.getNearbyMarketYards,
+          drone: gemini.getDroneDeliveryServices,
+        }
+      };
+      
+      let serviceFunction: Function | undefined = serviceMap[appMode][type] || undefined;
+      
+      // Common services
+      if (!serviceFunction) {
+          const commonServiceMap: { [key: string]: Function } = {
+              map: gemini.getVillageMapInfo,
+              water: gemini.getNearbyWaterResources,
+              coldstorage: gemini.getNearbyColdStorages
           };
-
-          navigator.geolocation.getCurrentPosition(
-            (position) => fetchGroundedData(position.coords),
-            (error) => {
-              console.warn("Could not get geolocation, falling back to location name.", error.message);
-              fetchGroundedData(null);
-            },
-            { timeout: 10000 }
-          );
-          return;
+          serviceFunction = commonServiceMap[type];
       }
-
-      switch (type) {
-        case 'doctor':
-          setImageFile(null);
-          setImagePreview(null);
+      
+      if (serviceFunction) {
+          // Check if it's a grounded search that needs appMode
+          if (['shops', 'links', 'transport', 'marketyard', 'drone'].includes(type)) {
+              data = await serviceFunction(location, language, appMode);
+          } else {
+              data = await serviceFunction(location, language);
+          }
+      } else {
           setIsModalLoading(false);
-          return;
-        case 'assistant':
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-            const newChat = ai.chats.create({
-                model: 'gemini-2.5-flash',
-                config: {
-                    systemInstruction: `You are a helpful AI assistant for farmers in Andhra Pradesh, India. Your name is AGRIGUIDE. Provide concise, practical advice. Your answers should be in the ${language} language.`
-                }
-            });
-            setChat(newChat);
-            setChatHistory([]);
-            setUserMessage('');
-            setIsModalLoading(false);
-            return;
-        case 'soil':
-          data = await getSuitableCropInfo(location, language);
-          break;
-        case 'market':
-          data = await getMarketInsights(location, language);
-          break;
-        case 'schemes':
-          data = await getGovernmentSchemes(location, language);
-          break;
-        case 'materials':
-          data = await getFarmingMaterialsInfo(location, language);
-          break;
-        case 'links':
-            data = await getGovLinksAndSubsidies(location, language);
-            break;
-        case 'map':
-            data = await getVillageMapInfo(location, language);
-            break;
-        case 'water':
-            data = await getNearbyWaterResources(location, language);
-            break;
-        default:
-            setIsModalLoading(false);
-            return;
+          throw new Error("Feature not implemented for this mode.");
       }
+
       setModalData(data);
     } catch (e: any) {
       setError(e.message || "An unknown error occurred.");
     } finally {
-        if (!groundedTypes.includes(type)) {
-            setIsModalLoading(false);
-        }
+      setIsModalLoading(false);
     }
   };
-
+  
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -203,7 +210,8 @@ const App: React.FC = () => {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64String = (reader.result as string).split(',')[1];
-        const data = await analyzeCropImage(location, base64String, imageFile.type, language);
+        const analysisFunction = appMode === 'agri' ? gemini.analyzeCropImage : gemini.analyzeFishImage;
+        const data = await analysisFunction(location, base64String, imageFile.type, language);
         setModalData(data);
         setIsModalLoading(false);
       };
@@ -245,30 +253,189 @@ const App: React.FC = () => {
     }
   };
 
-  // Simple markdown renderer
   const renderMarkdown = (text: string) => {
-    // FIX: Added a check to ensure text is not null or undefined, preventing potential runtime errors.
-    // This resolves a cascade of confusing compiler errors caused by passing a potentially unsafe function to JSX.
-    if (!text) {
-      return '';
-    }
+    if (!text) return '';
     return text
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/^- (.*$)/gm, '<li class="ml-4 list-disc">$1</li>')
       .replace(/(\r\n|\n|\r)/gm, '<br>');
   };
-
-  if (showHomePage) {
-    return <HomePage onEnter={() => setShowHomePage(false)} />;
+  
+  const handleEnter = (mode: AppMode) => {
+    setAppMode(mode);
+    setShowHomePage(false);
   }
 
+  if (showHomePage) {
+    return <HomePage onEnter={handleEnter} />;
+  }
+  
+  const renderModalContent = () => {
+    if (!modalData) return null;
+    
+    if (appMode === 'agri') {
+        switch(activeModal) {
+            case 'soil': return <>
+                {(modalData as SuitableCropInfo[]).map(item => (
+                    <div key={item.cropName} className="mb-4 p-3 bg-gray-50 rounded-lg">
+                        <h4 className="font-bold text-green-700">{item.cropName}</h4>
+                        <p><strong>Suitability:</strong> {item.suitability}</p>
+                        <p><strong>Sowing Season:</strong> {item.sowingSeason}</p>
+                        <p><strong>Potential Yield:</strong> {item.potentialYield}</p>
+                        <p><strong>Avg. Price:</strong> {item.avgMarketPrice}</p>
+                    </div>
+                ))}
+                <div className="mt-6 border-t pt-4">
+                    <YieldChart data={modalData} nameKey="cropName" valueKey="potentialYieldValue" chartTitle="Potential Yield" barName="Yield" barColor="#34D399" />
+                    <PriceChart data={modalData} nameKey="cropName" valueKey="avgMarketPriceValue" chartTitle="Average Market Price" barName="Price (₹)" barColor="#3B82F6" />
+                </div>
+            </>;
+            case 'doctor':
+                const cropData = modalData as DiseaseAnalysis;
+                return <>
+                    <h4 className="font-bold text-green-700">{cropData.diseaseName}</h4>
+                    <p><strong>Confidence:</strong> {cropData.confidence}</p>
+                    <p><strong>Description:</strong> {cropData.description}</p>
+                    <p className="font-semibold mt-2">Preventive Measures:</p>
+                    <ul className="list-disc list-inside ml-4">{cropData.preventiveMeasures?.map((m: string) => <li key={m}>{m}</li>)}</ul>
+                    <p className="font-semibold mt-2">Treatment:</p>
+                    {/* FIX: The list item for treatment was empty. Added the treatment text `{t}` inside the `li` tag. This likely caused a cascade of parsing errors. */}
+                    <ul className="list-disc list-inside ml-4">{cropData.treatment?.map((t: string) => <li key={t}>{t}</li>)}</ul>
+                </>;
+            case 'market': return (modalData as MarketInfo[]).map(market => (
+                <div key={market.marketName} className="mb-6 p-3 bg-gray-50 rounded-lg">
+                  <h4 className="font-bold text-green-700">{market.marketName} ({market.distance})</h4>
+                  <MarketPriceChart data={market.availableCrops} />
+                  <div className="divide-y divide-gray-200 mt-4">
+                    {market.availableCrops?.map((c: CropMarketData) => 
+                      <div key={c.cropName} className="py-2">
+                        <p className="font-semibold">{c.cropName}</p>
+                        <p className="text-sm">Price: {c.pricePerKg} (Demand: {c.demand}, Trend: {c.priceTrend})</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ));
+            case 'schemes': return (modalData as GovernmentScheme[]).map(scheme => (
+              <div key={scheme.name} className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <h4 className="font-bold text-green-700">{scheme.name}</h4>
+                <p><strong>Eligibility:</strong> {scheme.eligibility}</p>
+                <a href={scheme.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">More Info</a>
+              </div>
+            ));
+            case 'materials': return (modalData as FarmingMaterial[]).map(material => (
+              <div key={material.name} className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <h4 className="font-bold text-green-700">{material.name}</h4>
+                <p><strong>Usage:</strong> {material.usage}</p>
+                <p><strong>Est. Price:</strong> {material.estimatedPrice}</p>
+              </div>
+            ));
+        }
+    } else { // appMode === 'aqua'
+        switch(activeModal) {
+            case 'soil': return <>
+                {(modalData as SuitableSpeciesInfo[]).map(item => (
+                    <div key={item.speciesName} className="mb-4 p-3 bg-gray-50 rounded-lg">
+                        <h4 className="font-bold text-blue-700">{item.speciesName}</h4>
+                        <p><strong>Suitability:</strong> {item.suitability}</p>
+                        <p><strong>Stocking Season:</strong> {item.stockingSeason}</p>
+                        <p><strong>Yield:</strong> {item.potentialYield}</p>
+                        <p><strong>Avg. Price:</strong> {item.avgMarketPrice}</p>
+                    </div>
+                ))}
+                <div className="mt-6 border-t pt-4">
+                    <YieldChart data={modalData} nameKey="speciesName" valueKey="potentialYieldValue" chartTitle="Potential Yield (Tons)" barName="Yield" barColor="#34D399" />
+                    <PriceChart data={modalData} nameKey="speciesName" valueKey="avgMarketPriceValue" chartTitle="Average Market Price (per Kg)" barName="Price (₹)" barColor="#3B82F6" />
+                </div>
+            </>;
+            case 'doctor':
+                const fishData = modalData as FishDiseaseAnalysis;
+                return <>
+                    <h4 className="font-bold text-blue-700">{fishData.diseaseName}</h4>
+                    <p><strong>Confidence:</strong> {fishData.confidence}</p>
+                    <p><strong>Description:</strong> {fishData.description}</p>
+                    <p className="font-semibold mt-2">Preventive Measures:</p>
+                    <ul className="list-disc list-inside ml-4">{fishData.preventiveMeasures?.map((m: string) => <li key={m}>{m}</li>)}</ul>
+                    <p className="font-semibold mt-2">Treatment:</p>
+                    {/* FIX: The list item for treatment was empty. Added the treatment text `{t}` inside the `li` tag. This likely caused a cascade of parsing errors. */}
+                    <ul className="list-disc list-inside ml-4">{fishData.treatment?.map((t: string) => <li key={t}>{t}</li>)}</ul>
+                </>;
+             case 'market': return (modalData as AquaMarketInfo[]).map(market => (
+                <div key={market.marketName} className="mb-6 p-3 bg-gray-50 rounded-lg">
+                  <h4 className="font-bold text-blue-700">{market.marketName} ({market.distance})</h4>
+                  <MarketPriceChart data={market.availableSpecies.map(s => ({...s, cropName: s.speciesName}))} />
+                  <div className="divide-y divide-gray-200 mt-4">
+                    {market.availableSpecies?.map((c: AquaMarketData) => 
+                      <div key={c.speciesName} className="py-2">
+                        <p className="font-semibold">{c.speciesName}</p>
+                        <p className="text-sm">Price: {c.pricePerKg} (Demand: {c.demand}, Trend: {c.priceTrend})</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ));
+            case 'schemes': return (modalData as AquaScheme[]).map(scheme => (
+              <div key={scheme.name} className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <h4 className="font-bold text-blue-700">{scheme.name}</h4>
+                <p><strong>Eligibility:</strong> {scheme.eligibility}</p>
+                <a href={scheme.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">More Info</a>
+              </div>
+            ));
+            case 'materials': return (modalData as AquaFarmingMaterial[]).map(material => (
+              <div key={material.name} className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <h4 className="font-bold text-blue-700">{material.name}</h4>
+                <p><strong>Usage:</strong> {material.usage}</p>
+                <p><strong>Est. Price:</strong> {material.estimatedPrice}</p>
+              </div>
+            ));
+        }
+    }
+    
+    // Common modal content
+    switch(activeModal) {
+        case 'map': return <InteractiveMap data={modalData as VillageMapData} />;
+        case 'water': return <WaterReportDisplay data={modalData as WaterResourceReport} />;
+        case 'shops':
+        case 'links':
+        case 'transport':
+        case 'coldstorage':
+        case 'marketyard':
+        case 'drone':
+            // FIX: Use GenerateContentResponse instead of the non-existent GeminiResponse.
+            const groundedData = modalData as GenerateContentResponse;
+            return <div>
+                <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(groundedData.text) }} />
+                {groundedData.candidates?.[0]?.groundingMetadata?.groundingChunks?.length > 0 && (
+                    <div className="mt-4">
+                        <h5 className="font-bold text-green-700">{T.sources}:</h5>
+                        <ul className="list-disc list-inside ml-4 text-sm">
+                            {groundedData.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any, index: number) => (
+                                (chunk.web || chunk.maps) && (
+                                    <li key={index}>
+                                        <a href={chunk.web?.uri || chunk.maps?.uri} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                            {chunk.web?.title || chunk.maps?.title || 'Source'}
+                                        </a>
+                                    </li>
+                                )
+                            ))}
+                        </ul>
+                    </div>
+                )}
+            </div>;
+        default: return null;
+    }
+  };
+
+
   return (
-    <div className="min-h-screen bg-green-50/50 font-sans">
+    <div className={`min-h-screen font-sans ${appMode === 'agri' ? 'bg-green-50/50' : 'bg-blue-50/50'}`}>
       <Header
         language={language}
         onLanguageChange={handleLanguageChange}
         onLocationSet={handleLocationSet}
+        appMode={appMode}
+        onModeChange={handleModeChange}
       />
       <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {location && (
@@ -285,20 +452,14 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            <FeatureCard icon={<SoilIcon />} title={T.soilAndCrops} onClick={() => handleFeatureClick('soil')} />
-            <FeatureCard icon={<DoctorIcon />} title={T.cropDoctor} onClick={() => handleFeatureClick('doctor')} />
-            <FeatureCard icon={<MarketIcon />} title={T.marketInsights} onClick={() => handleFeatureClick('market')} />
-            <FeatureCard icon={<SchemeIcon />} title={T.govtSchemes} onClick={() => handleFeatureClick('schemes')} />
-            <FeatureCard icon={<AIAssistantIcon />} title={T.aiAssistant} onClick={() => handleFeatureClick('assistant')} />
-            <FeatureCard icon={<FarmingMaterialsIcon />} title={T.farmingMaterials} onClick={() => handleFeatureClick('materials')} />
-            <FeatureCard icon={<FertilizerShopsIcon />} title={T.fertilizerShops} onClick={() => handleFeatureClick('shops')} />
-            <FeatureCard icon={<GovLinksIcon />} title={T.govLinks} onClick={() => handleFeatureClick('links')} />
-            <FeatureCard icon={<TransportIcon />} title={T.nearbyTransport} onClick={() => handleFeatureClick('transport')} />
-            <FeatureCard icon={<SatelliteIcon />} title={T.villageMap} onClick={() => handleFeatureClick('map')} />
-            <FeatureCard icon={<ColdStorageIcon />} title={T.coldStorages} onClick={() => handleFeatureClick('coldstorage')} />
-            <FeatureCard icon={<MarketYardIcon />} title={T.marketYards} onClick={() => handleFeatureClick('marketyard')} />
-            <FeatureCard icon={<WaterIcon />} title={T.nearbyWaterResources} onClick={() => handleFeatureClick('water')} />
-            <FeatureCard icon={<DroneIcon />} title={T.droneDelivery} onClick={() => handleFeatureClick('drone')} />
+            {FEATURES[appMode].map(feature => (
+                <FeatureCard 
+                    key={feature.id}
+                    icon={feature.icon} 
+                    title={T[feature.titleKey as keyof typeof T] as string}
+                    onClick={() => handleFeatureClick(feature.id as ModalType)} 
+                />
+            ))}
           </div>
         )}
       </main>
@@ -309,6 +470,7 @@ const App: React.FC = () => {
         title={activeModal ? T.modalTitles[activeModal] : ''}
         modalData={modalData}
         activeModal={activeModal}
+        appMode={appMode}
       >
         {isModalLoading && (
             <div className="flex justify-center items-center h-48">
@@ -319,108 +481,17 @@ const App: React.FC = () => {
             </div>
         )}
         {error && <p className="text-red-500 text-center">{error}</p>}
-        {modalData && !isModalLoading && (
+        {!isModalLoading && !error && (
             <div>
-              {activeModal === 'soil' && (
-                <div>
-                  {(modalData as SuitableCropInfo[]).map(crop => (
-                    <div key={crop.cropName} className="mb-4 p-3 bg-gray-50 rounded-lg">
-                      <h4 className="font-bold text-green-700">{crop.cropName}</h4>
-                      <p><strong className="font-semibold">Suitability:</strong> {crop.suitability}</p>
-                      <p><strong className="font-semibold">Sowing Season:</strong> {crop.sowingSeason}</p>
-                      <p><strong className="font-semibold">Water Requirement:</strong> {crop.waterRequirement}</p>
-                      <p><strong className="font-semibold">Potential Yield:</strong> {crop.potentialYield}</p>
-                      <p><strong className="font-semibold">Avg. Price:</strong> {crop.avgMarketPrice}</p>
+                {renderModalContent()}
+                {activeModal === 'doctor' && !modalData && (
+                    <div className="text-center">
+                        <input type="file" accept="image/*" onChange={handleImageUpload} className="mb-4 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
+                        {imagePreview && <img src={imagePreview} alt="Preview" className="mx-auto max-h-60 rounded-lg mb-4" />}
+                        <button onClick={handleAnalyzeImage} disabled={!imageFile} className="bg-green-600 text-white px-4 py-2 rounded-lg disabled:bg-gray-400">Analyze Image</button>
                     </div>
-                  ))}
-                  <div className="mt-6 border-t pt-4">
-                      <CropYieldChart data={modalData as SuitableCropInfo[]} />
-                      <CropPriceChart data={modalData as SuitableCropInfo[]} />
-                  </div>
-                </div>
-              )}
-              {activeModal === 'doctor' && (
-                <div>
-                  <h4 className="font-bold text-green-700">{modalData.diseaseName}</h4>
-                  <p><strong className="font-semibold">Confidence:</strong> {modalData.confidence}</p>
-                  <p><strong className="font-semibold">Description:</strong> {modalData.description}</p>
-                  <p className="font-semibold mt-2">Preventive Measures:</p>
-                  <ul className="list-disc list-inside ml-4">
-                    {modalData.preventiveMeasures?.map((m: string) => <li key={m}>{m}</li>)}
-                  </ul>
-                  <p className="font-semibold mt-2">Treatment:</p>
-                  <ul className="list-disc list-inside ml-4">
-                    {modalData.treatment?.map((t: string) => <li key={t}>{t}</li>)}
-                  </ul>
-                </div>
-              )}
-              {activeModal === 'market' && (modalData as MarketInfo[]).map(market => (
-                <div key={market.marketName} className="mb-6 p-3 bg-gray-50 rounded-lg">
-                  <h4 className="font-bold text-green-700">{market.marketName} ({market.distance})</h4>
-                  <MarketPriceChart data={market.availableCrops} />
-                  <div className="divide-y divide-gray-200 mt-4">
-                    {market.availableCrops?.map((c: CropMarketData) => 
-                      <div key={c.cropName} className="py-2">
-                        <p className="font-semibold">{c.cropName}</p>
-                        <p className="text-sm">Price: {c.pricePerKg} (Demand: {c.demand}, Trend: {c.priceTrend})</p>
-                        <p className="text-sm"><strong className="font-semibold">{T.availability}:</strong> {c.sellerSlotAvailability}</p>
-                        <p className="text-sm"><strong className="font-semibold">{T.bookingInfo}:</strong> {c.bookingNotes}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {activeModal === 'schemes' && (modalData as GovernmentScheme[]).map(scheme => (
-                <div key={scheme.name} className="mb-4 p-3 bg-gray-50 rounded-lg">
-                  <h4 className="font-bold text-green-700">{scheme.name}</h4>
-                  <p><strong className="font-semibold">Description:</strong> {scheme.description}</p>
-                  <p><strong className="font-semibold">Eligibility:</strong> {scheme.eligibility}</p>
-                  <p><strong className="font-semibold">Deadline:</strong> {scheme.applicationDeadline}</p>
-                  <a href={scheme.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">More Info</a>
-                </div>
-              ))}
-              {activeModal === 'materials' && (modalData as FarmingMaterial[]).map(material => (
-                <div key={material.name} className="mb-4 p-3 bg-gray-50 rounded-lg">
-                  <h4 className="font-bold text-green-700">{material.name}</h4>
-                  <p><strong className="font-semibold">Description:</strong> {material.description}</p>
-                  <p><strong className="font-semibold">Usage:</strong> {material.usage}</p>
-                  <p><strong className="font-semibold">Est. Price:</strong> {material.estimatedPrice}</p>
-                  <p><strong className="font-semibold">Sourcing:</strong> {material.localSourcing}</p>
-                  <p><strong className="font-semibold">{T.availability}:</strong> {material.availability}</p>
-                  <p><strong className="font-semibold">{T.bookingInfo}:</strong> {material.bookingInfo}</p>
-                </div>
-              ))}
-              {activeModal === 'map' && <InteractiveMap data={modalData as VillageMapData} />}
-              {activeModal === 'water' && <WaterReportDisplay data={modalData as WaterResourceReport} />}
-              {['shops', 'links', 'transport', 'coldstorage', 'marketyard', 'drone'].includes(activeModal!) && (
-                <div>
-                    <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(modalData.text) }} />
-                    {(modalData as GenerateContentResponse).candidates?.[0]?.groundingMetadata?.groundingChunks?.length > 0 && (
-                        <div className="mt-4">
-                            <h5 className="font-bold text-green-700">{T.sources}:</h5>
-                            <ul className="list-disc list-inside ml-4 text-sm">
-                                {modalData.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any, index: number) => (
-                                    (chunk.web || chunk.maps) && (
-                                        <li key={index}>
-                                            <a href={chunk.web?.uri || chunk.maps?.uri} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                                                {chunk.web?.title || chunk.maps?.title || 'Source'}
-                                            </a>
-                                        </li>
-                                    )
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                </div>
-              )}
+                )}
             </div>
-        )}
-        {activeModal === 'doctor' && !modalData && !isModalLoading && (
-          <div className="text-center">
-            <input type="file" accept="image/*" onChange={handleImageUpload} className="mb-4 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100" />
-            {imagePreview && <img src={imagePreview} alt="Crop preview" className="mx-auto max-h-60 rounded-lg mb-4" />}
-            <button onClick={handleAnalyzeImage} disabled={!imageFile} className="bg-green-600 text-white px-4 py-2 rounded-lg disabled:bg-gray-400">Analyze Image</button>
-          </div>
         )}
         {activeModal === 'assistant' && (
             <div className="flex flex-col h-[70vh]">

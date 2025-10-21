@@ -1,8 +1,19 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Language, Location } from '../types';
-import { UI_STRINGS, MOCK_LOCATIONS } from '../constants';
-import { GpsIcon } from './icons';
+import { UI_STRINGS, AGRI_MOCK_LOCATIONS, AQUA_MOCK_LOCATIONS } from '../constants';
+import { GpsIcon, AgriIcon, AquaIcon, ChevronDownIcon } from './icons';
 import { reverseGeocode } from '../services/geminiService';
+
+const LANGUAGES: Record<Language, string> = {
+  english: 'English',
+  telugu: 'తెలుగు',
+  hindi: 'हिन्दी',
+  kannada: 'ಕನ್ನಡ',
+  tamil: 'தமிழ்',
+  malayalam: 'മലയാളം',
+  marathi: 'मराठी',
+};
+
 
 // A reusable autocomplete input component
 const AutocompleteInput = ({ 
@@ -74,45 +85,86 @@ interface HeaderProps {
   language: Language;
   onLanguageChange: (lang: Language) => void;
   onLocationSet: (location: Location) => void;
+  appMode: 'agri' | 'aqua';
+  onModeChange: (mode: 'agri' | 'aqua') => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationSet }) => {
+const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationSet, appMode, onModeChange }) => {
   const T = UI_STRINGS[language];
   const [village, setVillage] = useState('');
   const [mandal, setMandal] = useState('');
   const [district, setDistrict] = useState('');
+  const [constituency, setConstituency] = useState('');
   const [error, setError] = useState('');
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+  const langDropdownRef = useRef<HTMLDivElement>(null);
   
-  // FIX: Initialize useRef with null to provide an initial argument.
-  const prevLangRef = useRef<Language | null>(null);
+  const prevLangRef = useRef(language);
+  const prevAppModeRef = useRef(appMode);
+
   useEffect(() => {
-    if (prevLangRef.current && prevLangRef.current !== language) {
+    // This effect runs when language or appMode changes.
+    // We check if it's not the initial render by comparing with previous values.
+    if (prevLangRef.current !== language || prevAppModeRef.current !== appMode) {
         setVillage('');
         setMandal('');
         setDistrict('');
+        setConstituency('');
         setError('');
     }
-    prevLangRef.current = language;
-  }, [language]);
 
-  const { districtSuggestions, mandalSuggestions, villageSuggestions } = useMemo(() => {
-    const currentLocations = MOCK_LOCATIONS[language];
+    // Update the refs to the current values for the next render cycle.
+    prevLangRef.current = language;
+    prevAppModeRef.current = appMode;
+  }, [language, appMode]);
+
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (langDropdownRef.current && !langDropdownRef.current.contains(event.target as Node)) {
+        setIsLangDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const { districtSuggestions, mandalSuggestions, villageSuggestions, constituencySuggestions } = useMemo(() => {
+    const isAgri = appMode === 'agri';
+    const currentLocations = isAgri ? AGRI_MOCK_LOCATIONS[language] : AQUA_MOCK_LOCATIONS[language];
+    
     const uniqueDistricts = [...new Set(currentLocations.map(l => l.district))];
-    const filteredByDistrict = district ? currentLocations.filter(l => l.district === district) : currentLocations;
-    const uniqueMandals = [...new Set(filteredByDistrict.map(l => l.mandal))];
-    const filteredByMandal = mandal ? filteredByDistrict.filter(l => l.mandal === mandal) : filteredByDistrict;
-    const uniqueVillages = [...new Set(filteredByMandal.map(l => l.village))];
-    return { districtSuggestions: uniqueDistricts, mandalSuggestions: uniqueMandals, villageSuggestions: uniqueVillages };
-  }, [district, mandal, language]);
+
+    if (isAgri) {
+        const filteredByDistrict = district ? currentLocations.filter(l => l.district === district) : currentLocations;
+        const uniqueMandals = [...new Set(filteredByDistrict.map(l => l.mandal))];
+        const filteredByMandal = mandal ? filteredByDistrict.filter(l => l.mandal === mandal) : filteredByDistrict;
+        const uniqueVillages = [...new Set(filteredByMandal.map(l => l.village))];
+        return { districtSuggestions: uniqueDistricts, mandalSuggestions: uniqueMandals as string[], villageSuggestions: uniqueVillages as string[], constituencySuggestions: [] };
+    } else { // aqua
+        const filteredByDistrict = district ? currentLocations.filter(l => l.district === district) : currentLocations;
+        const uniqueConstituencies = [...new Set(filteredByDistrict.map(l => l.constituency))];
+        return { districtSuggestions: uniqueDistricts, mandalSuggestions: [], villageSuggestions: [], constituencySuggestions: uniqueConstituencies as string[] };
+    }
+  }, [district, mandal, language, appMode]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (village && mandal && district) {
-        setError('');
-        onLocationSet({ village, mandal, district });
-    } else {
-        setError('Please fill all fields.');
+    if (appMode === 'agri') {
+        if (village && mandal && district) {
+            setError('');
+            onLocationSet({ village, mandal, district });
+        } else {
+            setError('Please fill all fields.');
+        }
+    } else { // aqua mode
+        if (constituency && district) {
+            setError('');
+            onLocationSet({ district, constituency });
+        } else {
+            setError('Please fill all fields.');
+        }
     }
   }
   
@@ -131,9 +183,16 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
         try {
           const { latitude, longitude } = position.coords;
           const locationData = await reverseGeocode({ latitude, longitude }, language);
-          setDistrict(locationData.district);
-          setMandal(locationData.mandal);
-          setVillage(locationData.village);
+          setDistrict(locationData.district || '');
+          if (appMode === 'agri') {
+              setMandal(locationData.mandal || '');
+              setVillage(locationData.village || '');
+              setConstituency('');
+          } else {
+              setMandal('');
+              setVillage('');
+              setConstituency(locationData.constituency || '');
+          }
         } catch (e: any) {
           setError(e.message || 'Could not determine location. Please enter manually.');
         } finally {
@@ -147,25 +206,74 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
     );
   };
 
+  const ModeButton: React.FC<{ mode: 'agri' | 'aqua'; label: string }> = ({ mode, label }) => (
+    <button
+      onClick={() => onModeChange(mode)}
+      className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors w-full
+        ${appMode === mode
+          ? (mode === 'agri' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white')
+          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+        }`}
+    >
+      {label}
+    </button>
+  );
+  
+  const handleLangSelect = (langCode: Language) => {
+    onLanguageChange(langCode);
+    setIsLangDropdownOpen(false);
+  };
+
   return (
     <header className="bg-white/80 backdrop-blur-md shadow-md sticky top-0 z-20">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-3">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center">
-            <svg className="h-10 w-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2h10a2 2 0 002-2v-1a2 2 0 012-2h1.945M7.8 4.879A2 2 0 0110 4h4a2 2 0 011.752.879l1.4 2.8A2 2 0 0115.752 11H8.248a2 2 0 01-1.4-3.321l1.4-2.8zM5 19h14" />
-            </svg>
-            <h1 className="text-2xl font-bold text-gray-800 ml-3">{T.title}</h1>
+            {appMode === 'agri' ? <AgriIcon /> : <AquaIcon />}
+            <h1 className="text-2xl font-bold text-gray-800 ml-3">{T.title[appMode]}</h1>
           </div>
           <div className="flex items-center space-x-2">
-            <button onClick={() => onLanguageChange('english')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${language === 'english' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>English</button>
-            <button onClick={() => onLanguageChange('telugu')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${language === 'telugu' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>తెలుగు</button>
+            <div className="flex border border-gray-300 rounded-md p-0.5 w-40">
+                <ModeButton mode="agri" label="AGRI" />
+                <ModeButton mode="aqua" label="AQUA" />
+            </div>
+            <div ref={langDropdownRef} className="relative">
+              <button
+                onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
+                className="px-3 py-1 text-sm font-semibold rounded-md transition-colors bg-gray-200 text-gray-700 hover:bg-gray-300 flex items-center"
+              >
+                <span>{LANGUAGES[language]}</span>
+                <ChevronDownIcon />
+              </button>
+              {isLangDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-30">
+                  <div className="py-1" role="menu" aria-orientation="vertical">
+                    {(Object.keys(LANGUAGES) as Language[]).map(langCode => (
+                      <button
+                        key={langCode}
+                        onClick={() => handleLangSelect(langCode)}
+                        className={`block w-full text-left px-4 py-2 text-sm ${language === langCode ? 'bg-green-100 text-green-800' : 'text-gray-700'} hover:bg-gray-100`}
+                        role="menuitem"
+                      >
+                        {LANGUAGES[langCode]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-end gap-3">
             <AutocompleteInput label={T.district} value={district} onChange={setDistrict} suggestions={districtSuggestions} />
-            <AutocompleteInput label={T.mandal} value={mandal} onChange={setMandal} suggestions={mandalSuggestions} />
-            <AutocompleteInput label={T.village} value={village} onChange={setVillage} suggestions={villageSuggestions} />
+            {appMode === 'agri' ? (
+                <>
+                    <AutocompleteInput label={T.mandal} value={mandal} onChange={setMandal} suggestions={mandalSuggestions} />
+                    <AutocompleteInput label={T.village} value={village} onChange={setVillage} suggestions={villageSuggestions} />
+                </>
+            ) : (
+                <AutocompleteInput label={T.constituency} value={constituency} onChange={setConstituency} suggestions={constituencySuggestions} />
+            )}
             <div className="flex gap-3 w-full sm:w-auto">
                 <button
                     type="button"

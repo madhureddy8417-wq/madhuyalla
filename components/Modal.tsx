@@ -1,6 +1,7 @@
 
+
 import React, { useEffect, useRef } from 'react';
-import type { ModalType, SuitableCropInfo, MarketInfo, GovernmentScheme, FarmingMaterial } from '../types';
+import type { ModalType, SuitableCropInfo, MarketInfo, GovernmentScheme, FarmingMaterial, SuitableSpeciesInfo, AquaMarketInfo, AquaScheme, AquaFarmingMaterial } from '../types';
 import { ExportIcon } from './icons';
 
 // Declare global variables from CDN scripts
@@ -16,68 +17,75 @@ const escapeCsvField = (field: any): string => {
   return str;
 };
 
-const createCsvContent = (data: any, modalType: ModalType): string => {
+const createCsvContent = (data: any, modalType: ModalType, appMode: 'agri' | 'aqua'): string => {
     let headers: string[] = [];
     let csvData: any[] = [];
 
-    switch (modalType) {
-        case 'soil':
-            headers = ['Crop Name', 'Suitability', 'Sowing Season', 'Water Requirement', 'Potential Yield', 'Avg Market Price'];
-            csvData = (data as SuitableCropInfo[]).map(item => ({
-                cropName: item.cropName,
-                suitability: item.suitability,
-                sowingSeason: item.sowingSeason,
-                waterRequirement: item.waterRequirement,
-                potentialYield: item.potentialYield,
-                avgMarketPrice: item.avgMarketPrice,
-            }));
-            break;
-        case 'market':
-            headers = ['Market Name', 'Distance', 'Crop Name', 'Demand', 'Price Per Kg', 'Price Trend'];
-            csvData = (data as MarketInfo[]).flatMap(market => 
-                market.availableCrops.map(crop => ({
-                    marketName: market.marketName,
-                    distance: market.distance,
-                    cropName: crop.cropName,
-                    demand: crop.demand,
-                    pricePerKg: crop.pricePerKg,
-                    priceTrend: crop.priceTrend,
-                }))
-            );
-            break;
-        case 'schemes':
-            headers = ['Name', 'Description', 'Eligibility', 'Application Deadline', 'Link'];
-            csvData = (data as GovernmentScheme[]).map(item => ({
-                name: item.name,
-                description: item.description,
-                eligibility: item.eligibility,
-                applicationDeadline: item.applicationDeadline,
-                link: item.link,
-            }));
-            break;
-        case 'materials':
-            headers = ['Name', 'Description', 'Usage', 'Estimated Price', 'Local Sourcing'];
-            csvData = (data as FarmingMaterial[]).map(item => ({
-                name: item.name,
-                description: item.description,
-                usage: item.usage,
-                estimatedPrice: item.estimatedPrice,
-                localSourcing: item.localSourcing,
-            }));
-            break;
-        default:
-            return '';
+    if (appMode === 'agri') {
+        switch (modalType) {
+            case 'soil':
+                headers = ['Crop Name', 'Suitability', 'Sowing Season', 'Water Requirement', 'Potential Yield', 'Avg Market Price'];
+                csvData = (data as SuitableCropInfo[]).map(item => ({ ...item }));
+                break;
+            case 'market':
+                headers = ['Market Name', 'Distance', 'Crop Name', 'Demand', 'Price Per Kg', 'Price Trend'];
+                csvData = (data as MarketInfo[]).flatMap(market => 
+                    market.availableCrops.map(crop => ({ marketName: market.marketName, distance: market.distance, ...crop }))
+                );
+                break;
+            case 'schemes':
+                headers = ['Name', 'Description', 'Eligibility', 'Application Deadline', 'Link'];
+                csvData = (data as GovernmentScheme[]).map(item => ({ ...item }));
+                break;
+            case 'materials':
+                headers = ['Name', 'Description', 'Usage', 'Estimated Price', 'Local Sourcing'];
+                csvData = (data as FarmingMaterial[]).map(item => ({ ...item }));
+                break;
+            default: return '';
+        }
+    } else { // appMode === 'aqua'
+        switch (modalType) {
+            case 'soil': // Represents "Water & Species"
+                headers = ['Species Name', 'Suitability', 'Stocking Season', 'Water Parameters', 'Potential Yield', 'Avg Market Price'];
+                csvData = (data as SuitableSpeciesInfo[]).map(item => ({ ...item }));
+                break;
+            case 'market':
+                headers = ['Market Name', 'Distance', 'Species Name', 'Demand', 'Price Per Kg', 'Price Trend'];
+                csvData = (data as AquaMarketInfo[]).flatMap(market =>
+                    market.availableSpecies.map(species => ({ marketName: market.marketName, distance: market.distance, ...species }))
+                );
+                break;
+            case 'schemes':
+                headers = ['Name', 'Description', 'Eligibility', 'Application Deadline', 'Link'];
+                csvData = (data as AquaScheme[]).map(item => ({ ...item }));
+                break;
+            case 'materials':
+                headers = ['Name', 'Description', 'Usage', 'Estimated Price', 'Local Sourcing'];
+                csvData = (data as AquaFarmingMaterial[]).map(item => ({ ...item }));
+                break;
+            default: return '';
+        }
     }
 
-    const headerRow = headers.map(escapeCsvField).join(',');
-    const dataRows = csvData.map(row => headers.map(header => {
-        // Create a key from the header that is likely to match a property in the row object
-        const key = Object.keys(row).find(k => k.toLowerCase() === header.replace(/[^a-zA-Z0-9]/g, '').toLowerCase());
-        return escapeCsvField(key ? row[key] : '');
-    }).join(',')).join('\n');
+    const headerRow = headers.join(',');
+    const dataRows = csvData.map(row => 
+        Object.values(row).map(escapeCsvField).join(',')
+    ).join('\n');
     
-    return `${headerRow}\n${dataRows}`;
+    // Manually map properties to headers to ensure order
+    const orderedDataRows = csvData.map(row => {
+        const keys = Object.keys(row);
+        return headers.map(header => {
+            // Find a key in the row that loosely matches the header
+            const key = keys.find(k => header.toLowerCase().replace(/[^a-z0-9]/gi, '') === k.toLowerCase().replace(/[^a-z0-9]/gi, ''))
+            return escapeCsvField(key ? row[key] : '');
+        }).join(',');
+    }).join('\n');
+
+
+    return `${headerRow}\n${orderedDataRows}`;
 };
+
 
 const downloadFile = (content: string, fileName: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
@@ -90,8 +98,8 @@ const downloadFile = (content: string, fileName: string, mimeType: string) => {
     URL.revokeObjectURL(link.href);
 };
 
-const exportToCsv = (data: any, modalType: ModalType, fileName: string) => {
-    const csvContent = createCsvContent(data, modalType);
+const exportToCsv = (data: any, modalType: ModalType, appMode: 'agri' | 'aqua', fileName: string) => {
+    const csvContent = createCsvContent(data, modalType, appMode);
     if (csvContent) {
         downloadFile(csvContent, `${fileName}.csv`, 'text/csv;charset=utf-8;');
     }
@@ -125,7 +133,6 @@ export const exportToPdf = async (elementId: string, fileName: string) => {
     }
 };
 
-
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -133,9 +140,10 @@ interface ModalProps {
   children: React.ReactNode;
   modalData?: any;
   activeModal?: ModalType | null;
+  appMode: 'agri' | 'aqua';
 }
 
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, modalData, activeModal }) => {
+const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, modalData, activeModal, appMode }) => {
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -172,14 +180,14 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, modalDa
   
   const handleExportCsv = () => {
     if (modalData && activeModal) {
-      exportToCsv(modalData, activeModal, title.replace(/ /g, '_'));
+      exportToCsv(modalData, activeModal, appMode, title.replace(/ /g, '_'));
     }
   };
 
   const isCsvExportable = activeModal && ['soil', 'market', 'schemes', 'materials'].includes(activeModal);
   const showExportButtons = modalData && activeModal !== 'assistant' && activeModal !== 'map' && activeModal !== 'water';
 
-  const modalSizeClass = (activeModal === 'map' || activeModal === 'water') ? 'max-w-4xl' : 'max-w-md';
+  const modalSizeClass = (activeModal === 'map' || activeModal === 'water') ? 'max-w-4xl' : 'max-w-2xl';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4">

@@ -1,22 +1,24 @@
-export type Language = 'english' | 'telugu';
+export type Language = 'english' | 'telugu' | 'kannada' | 'tamil' | 'malayalam' | 'hindi' | 'marathi';
 
 export interface Location {
-  village: string;
-  mandal: string;
   district: string;
+  mandal?: string;
+  village?: string;
+  constituency?: string;
 }
 
 export interface MockLocation {
-  village: string;
-  mandal: string;
   district: string;
+  mandal?: string;
+  village?: string;
+  constituency?: string;
 }
 
 export type MockLocationsByLang = {
   [key in Language]: MockLocation[];
 };
 
-// Types for "Soil & Crops" Feature
+// Types for "Soil & Crops" Feature (Agri)
 export interface SuitableCropInfo {
   cropName: string;
   suitability: string;
@@ -28,7 +30,19 @@ export interface SuitableCropInfo {
   avgMarketPriceValue: number;
 }
 
-// Types for "Crop Doctor" Feature
+// Types for "Water & Species" Feature (Aqua)
+export interface SuitableSpeciesInfo {
+  speciesName: string;
+  suitability: string;
+  avgMarketPrice: string;
+  stockingSeason: string;
+  waterParameters: string; // e.g., Salinity, pH
+  potentialYield: string;
+  potentialYieldValue: number;
+  avgMarketPriceValue: number;
+}
+
+// Types for "Crop Doctor" Feature (Agri)
 export interface DiseaseAnalysis {
   diseaseName: string;
   confidence: 'High' | 'Medium' | 'Low';
@@ -37,7 +51,16 @@ export interface DiseaseAnalysis {
   treatment: string[];
 }
 
-// Types for "Market Insights" Feature
+// Types for "Fish/Shrimp Doctor" Feature (Aqua)
+export interface FishDiseaseAnalysis {
+  diseaseName: string;
+  confidence: 'High' | 'Medium' | 'Low';
+  description: string;
+  preventiveMeasures: string[];
+  treatment: string[];
+}
+
+// Types for "Market Insights" Feature (Agri)
 export interface CropMarketData {
   cropName: string;
   demand: 'High' | 'Medium' | 'Low' | string;
@@ -54,8 +77,25 @@ export interface MarketInfo {
   availableCrops: CropMarketData[];
 }
 
+// Types for "Aqua Market Insights" Feature
+export interface AquaMarketData {
+  speciesName: string;
+  demand: 'High' | 'Medium' | 'Low' | string;
+  pricePerKg: string;
+  pricePerKgValue: number;
+  priceTrend: 'Increasing' | 'Decreasing' | 'Stable' | string;
+  sellerInfo: string;
+  marketNotes: string;
+}
 
-// Types for "Government Schemes" Feature
+export interface AquaMarketInfo {
+  marketName: string;
+  distance: string;
+  availableSpecies: AquaMarketData[];
+}
+
+
+// Types for "Government Schemes" Feature (Agri)
 export interface GovernmentScheme {
   name: string;
   description:string;
@@ -64,8 +104,28 @@ export interface GovernmentScheme {
   applicationDeadline: string;
 }
 
-// New Types
+// Types for "Aqua Government Schemes" Feature
+export interface AquaScheme {
+  name: string;
+  description:string;
+  eligibility: string;
+  link: string;
+  applicationDeadline: string;
+}
+
+// Types for Farming Materials (Agri)
 export interface FarmingMaterial {
+  name: string;
+  description: string;
+  usage: string;
+  estimatedPrice: string;
+  localSourcing: string;
+  availability: string;
+  bookingInfo: string;
+}
+
+// Types for Aqua Farming Materials
+export interface AquaFarmingMaterial {
   name: string;
   description: string;
   usage: string;
@@ -93,6 +153,10 @@ export interface CurrentWeather {
   precipitationProbability: string;
   windSpeed: string;
   uvIndex: string;
+  feelsLike: string;
+  windDirection: string;
+  sunrise: string;
+  sunset: string;
 }
 
 export interface DailyForecast {
@@ -102,9 +166,18 @@ export interface DailyForecast {
   condition: string;
 }
 
+export interface HourlyForecast {
+    time: string;
+    temperature: string;
+    condition: string;
+    precipitationProbability: string;
+}
+
 export interface WeatherReport {
   current: CurrentWeather;
+  hourly: HourlyForecast[];
   forecast: DailyForecast[];
+  agriculturalAdvisory: string[];
 }
 
 // Village Map Types
