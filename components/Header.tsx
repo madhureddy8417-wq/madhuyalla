@@ -20,12 +20,14 @@ const AutocompleteInput = ({
   label, 
   value, 
   onChange, 
-  suggestions 
+  suggestions,
+  disabled = false,
 }: { 
   label: string; 
   value: string; 
   onChange: (value: string) => void; 
   suggestions: string[];
+  disabled?: boolean;
 }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -64,8 +66,9 @@ const AutocompleteInput = ({
         value={value}
         onChange={handleChange}
         onFocus={() => { if(value) setShowSuggestions(true); }}
-        className="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500"
+        className="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
         required
+        disabled={disabled}
       />
       {showSuggestions && value && filteredSuggestions.length > 0 && (
         <ul className="absolute z-30 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-48 overflow-auto shadow-lg">
@@ -95,8 +98,15 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
   const [mandal, setMandal] = useState('');
   const [district, setDistrict] = useState('');
   const [constituency, setConstituency] = useState('');
+  
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [inputMode, setInputMode] = useState<'address' | 'coords'>('address');
+
   const [error, setError] = useState('');
-  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  const [isFetchingGps, setIsFetchingGps] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
   const langDropdownRef = useRef<HTMLDivElement>(null);
   
@@ -104,17 +114,15 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
   const prevAppModeRef = useRef(appMode);
 
   useEffect(() => {
-    // This effect runs when language or appMode changes.
-    // We check if it's not the initial render by comparing with previous values.
     if (prevLangRef.current !== language || prevAppModeRef.current !== appMode) {
         setVillage('');
         setMandal('');
         setDistrict('');
         setConstituency('');
+        setLatitude('');
+        setLongitude('');
         setError('');
     }
-
-    // Update the refs to the current values for the next render cycle.
     prevLangRef.current = language;
     prevAppModeRef.current = appMode;
   }, [language, appMode]);
@@ -149,32 +157,62 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
     }
   }, [district, mandal, language, appMode]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (appMode === 'agri') {
-        if (village && mandal && district) {
-            setError('');
-            onLocationSet({ village, mandal, district });
-        } else {
-            setError('Please fill all fields.');
+    setError('');
+
+    if (inputMode === 'coords') {
+        const lat = parseFloat(latitude);
+        const lon = parseFloat(longitude);
+
+        if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            setError(T.invalidCoords);
+            return;
         }
-    } else { // aqua mode
-        if (constituency && district) {
-            setError('');
-            onLocationSet({ district, constituency });
-        } else {
-            setError('Please fill all fields.');
+
+        setIsSubmitting(true);
+        try {
+            const locationData = await reverseGeocode({ latitude: lat, longitude: lon }, language);
+            setDistrict(locationData.district || '');
+            if (appMode === 'agri') {
+                setMandal(locationData.mandal || '');
+                setVillage(locationData.village || '');
+                setConstituency(''); // Clear other mode's field
+            } else {
+                setConstituency(locationData.constituency || '');
+                setMandal(''); // Clear other mode's fields
+                setVillage('');
+            }
+            onLocationSet(locationData);
+        } catch (e: any) {
+            setError(e.message || 'Could not determine location from coordinates.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    } else { // 'address' mode
+        if (appMode === 'agri') {
+            if (village && mandal && district) {
+                onLocationSet({ village, mandal, district });
+            } else {
+                setError('Please fill all fields.');
+            }
+        } else { // 'aqua' mode
+            if (constituency && district) {
+                onLocationSet({ district, constituency });
+            } else {
+                setError('Please fill all fields.');
+            }
         }
     }
   }
   
   const handleUseCurrentLocation = async () => {
-    setIsFetchingLocation(true);
+    setIsFetchingGps(true);
     setError('');
 
     if (!navigator.geolocation) {
       setError('Geolocation is not supported by your browser.');
-      setIsFetchingLocation(false);
+      setIsFetchingGps(false);
       return;
     }
 
@@ -193,15 +231,16 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
               setVillage('');
               setConstituency(locationData.constituency || '');
           }
+          onLocationSet(locationData);
         } catch (e: any) {
           setError(e.message || 'Could not determine location. Please enter manually.');
         } finally {
-          setIsFetchingLocation(false);
+          setIsFetchingGps(false);
         }
       },
       () => {
         setError('Unable to retrieve your location. Please enable location services and try again.');
-        setIsFetchingLocation(false);
+        setIsFetchingGps(false);
       }
     );
   };
@@ -223,6 +262,8 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
     onLanguageChange(langCode);
     setIsLangDropdownOpen(false);
   };
+
+  const isFormDisabled = isFetchingGps || isSubmitting;
 
   return (
     <header className="bg-white/80 backdrop-blur-md shadow-md sticky top-0 z-20">
@@ -264,25 +305,65 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
             </div>
           </div>
         </div>
+
+        <div className="flex items-center gap-1 p-1 bg-gray-200 rounded-lg mb-3 w-max">
+            <button type="button" onClick={() => setInputMode('address')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${inputMode === 'address' ? 'bg-white shadow' : 'text-gray-600'}`}>{T.address}</button>
+            <button type="button" onClick={() => setInputMode('coords')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${inputMode === 'coords' ? 'bg-white shadow' : 'text-gray-600'}`}>{T.coordinates}</button>
+        </div>
+        
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-end gap-3">
-            <AutocompleteInput label={T.district} value={district} onChange={setDistrict} suggestions={districtSuggestions} />
-            {appMode === 'agri' ? (
+            {inputMode === 'address' ? (
                 <>
-                    <AutocompleteInput label={T.mandal} value={mandal} onChange={setMandal} suggestions={mandalSuggestions} />
-                    <AutocompleteInput label={T.village} value={village} onChange={setVillage} suggestions={villageSuggestions} />
+                    <AutocompleteInput label={T.district} value={district} onChange={setDistrict} suggestions={districtSuggestions} disabled={isFormDisabled} />
+                    {appMode === 'agri' ? (
+                        <>
+                            <AutocompleteInput label={T.mandal} value={mandal} onChange={setMandal} suggestions={mandalSuggestions} disabled={isFormDisabled} />
+                            <AutocompleteInput label={T.village} value={village} onChange={setVillage} suggestions={villageSuggestions} disabled={isFormDisabled} />
+                        </>
+                    ) : (
+                        <AutocompleteInput label={T.constituency} value={constituency} onChange={setConstituency} suggestions={constituencySuggestions} disabled={isFormDisabled} />
+                    )}
                 </>
             ) : (
-                <AutocompleteInput label={T.constituency} value={constituency} onChange={setConstituency} suggestions={constituencySuggestions} />
+                <>
+                    <div className="relative flex-1">
+                        <label className="block text-green-800 text-xs font-bold mb-1">{T.latitude}</label>
+                        <input
+                            type="number"
+                            step="any"
+                            value={latitude}
+                            onChange={(e) => setLatitude(e.target.value)}
+                            className="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
+                            required
+                            disabled={isFormDisabled}
+                        />
+                    </div>
+                    <div className="relative flex-1">
+                        <label className="block text-green-800 text-xs font-bold mb-1">{T.longitude}</label>
+                        <input
+                            type="number"
+                            step="any"
+                            value={longitude}
+                            onChange={(e) => setLongitude(e.target.value)}
+                            className="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
+                            required
+                            disabled={isFormDisabled}
+                        />
+                    </div>
+                    {/* Spacer to align buttons */}
+                    {appMode === 'agri' && <div className="flex-1 hidden sm:block" />} 
+                </>
             )}
+
             <div className="flex gap-3 w-full sm:w-auto">
                 <button
                     type="button"
                     onClick={handleUseCurrentLocation}
-                    disabled={isFetchingLocation}
+                    disabled={isFormDisabled}
                     title={T.useCurrentLocation}
                     className="w-full sm:w-auto bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded-lg shadow-sm transition duration-300 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center h-10"
                 >
-                    {isFetchingLocation ? (
+                    {isFetchingGps ? (
                         <svg className="animate-spin h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -290,9 +371,18 @@ const Header: React.FC<HeaderProps> = ({ language, onLanguageChange, onLocationS
                     ) : (
                         <GpsIcon />
                     )}
-                    <span className="ml-2 sm:hidden md:inline">{isFetchingLocation ? T.fetchingLocation : T.useCurrentLocation}</span>
+                    <span className="ml-2 sm:hidden md:inline">{isFetchingGps ? T.fetchingLocation : T.useCurrentLocation}</span>
                 </button>
-                <button type="submit" className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 h-10">{T.setLocation}</button>
+                <button type="submit" disabled={isFormDisabled} className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 h-10 flex items-center justify-center disabled:opacity-50">
+                    {isSubmitting ? (
+                         <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    ) : (
+                        T.setLocation
+                    )}
+                </button>
             </div>
         </form>
         {error && <p className="text-red-500 text-xs mt-1 text-center sm:text-left">{error}</p>}

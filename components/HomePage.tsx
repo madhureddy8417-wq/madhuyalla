@@ -7,7 +7,7 @@ interface HomePageProps {
 
 const HomePage: React.FC<HomePageProps> = ({ onEnter }) => {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-50 to-blue-50 flex flex-col items-center justify-center text-center p-4 font-sans">
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center text-center p-4 font-sans">
       <AnimatedFarmer />
       <h1 className="text-4xl sm:text-5xl font-bold text-gray-800 mt-4">
         Welcome to your AI Assistant

@@ -14,12 +14,38 @@ import * as gemini from './services/geminiService';
 import type { Language, Location, ModalType, ChatMessage, WeatherReport, VillageMapData, WaterResourceReport, SuitableCropInfo, SuitableSpeciesInfo, MarketInfo, AquaMarketInfo, GovernmentScheme, AquaScheme, FarmingMaterial, AquaFarmingMaterial, DiseaseAnalysis, FishDiseaseAnalysis, CropMarketData, AquaMarketData } from './types';
 import HomePage from './components/HomePage';
 import { YieldChart, PriceChart, MarketPriceChart } from './components/charts';
+import { MicIcon } from './components/icons';
 
 type AppMode = 'agri' | 'aqua';
 
+// A global mapping for language codes to BCP 47 tags for the Web Speech API
+const LANG_CODE_MAP: Record<Language, string> = {
+    english: 'en-IN',
+    telugu: 'te-IN',
+    hindi: 'hi-IN',
+    kannada: 'kn-IN',
+    tamil: 'ta-IN',
+    malayalam: 'ml-IN',
+    marathi: 'mr-IN',
+};
+
+// FIX: Add a simple interface for SpeechRecognition to resolve the "Cannot find name 'SpeechRecognition'" error.
+interface SpeechRecognition {
+  continuous: boolean;
+  lang: string;
+  interimResults: boolean;
+  onstart: () => void;
+  onend: () => void;
+  onerror: (event: any) => void;
+  onresult: (event: any) => void;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
 // FIX: Correct the onClick prop type to accept an async function, and define props with React.FC to allow for 'key' prop.
-const FeatureCard: React.FC<{ icon: React.ReactNode, title: string, onClick: () => Promise<void> }> = ({ icon, title, onClick }) => {
-  const IconComponent = icon as React.ElementType;
+// FIX: Changed icon prop type from React.ReactNode to React.ElementType to correctly handle passing component functions as props.
+const FeatureCard: React.FC<{ icon: React.ElementType, title: string, onClick: () => Promise<void> }> = ({ icon: IconComponent, title, onClick }) => {
   return (
     <button onClick={onClick} className="bg-white p-4 sm:p-6 rounded-2xl shadow-lg border border-gray-200 transition-all hover:shadow-xl hover:border-green-300 hover:-translate-y-1 text-center flex flex-col items-center justify-center space-y-3">
       <div className="bg-green-100 p-4 rounded-full">
@@ -55,6 +81,11 @@ const App: React.FC = () => {
   
   const [showHomePage, setShowHomePage] = useState(true);
 
+  // States for voice input
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupport, setSpeechSupport] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
   const T = UI_STRINGS[language];
   
   useEffect(() => {
@@ -62,6 +93,39 @@ const App: React.FC = () => {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [chatHistory]);
+
+  // Effect for setting up Speech Recognition
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setSpeechSupport(!!SpeechRecognition);
+
+    if (activeModal === 'assistant' && SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.lang = LANG_CODE_MAP[language];
+      recognition.interimResults = false;
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setUserMessage(prev => prev ? `${prev} ${transcript}` : transcript);
+      };
+      
+      recognitionRef.current = recognition;
+
+      return () => { // Cleanup when modal closes or language changes
+        if (recognitionRef.current) {
+          recognitionRef.current.abort();
+        }
+        setIsListening(false);
+      };
+    }
+  }, [activeModal, language]);
 
   const resetState = () => {
     setLocation(null);
@@ -240,6 +304,16 @@ const App: React.FC = () => {
         setIsChatLoading(false);
     }
   };
+
+  const handleToggleListening = () => {
+    if (!recognitionRef.current) return;
+
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      recognitionRef.current.start();
+    }
+  };
   
   const closeModal = () => {
     setActiveModal(null);
@@ -287,8 +361,9 @@ const App: React.FC = () => {
                     </div>
                 ))}
                 <div className="mt-6 border-t pt-4">
-                    <YieldChart data={modalData} nameKey="cropName" valueKey="potentialYieldValue" chartTitle="Potential Yield" barName="Yield" barColor="#34D399" />
-                    <PriceChart data={modalData} nameKey="cropName" valueKey="avgMarketPriceValue" chartTitle="Average Market Price" barName="Price (₹)" barColor="#3B82F6" />
+                    {/* FIX: Removed props that are now hardcoded in the chart components. */}
+                    <YieldChart data={modalData} nameKey="cropName" valueKey="potentialYieldValue" />
+                    <PriceChart data={modalData} nameKey="cropName" valueKey="avgMarketPriceValue" />
                 </div>
             </>;
             case 'doctor':
@@ -303,20 +378,37 @@ const App: React.FC = () => {
                     {/* FIX: The list item for treatment was empty. Added the treatment text `{t}` inside the `li` tag. This likely caused a cascade of parsing errors. */}
                     <ul className="list-disc list-inside ml-4">{cropData.treatment?.map((t: string) => <li key={t}>{t}</li>)}</ul>
                 </>;
-            case 'market': return (modalData as MarketInfo[]).map(market => (
-                <div key={market.marketName} className="mb-6 p-3 bg-gray-50 rounded-lg">
-                  <h4 className="font-bold text-green-700">{market.marketName} ({market.distance})</h4>
-                  <MarketPriceChart data={market.availableCrops} />
-                  <div className="divide-y divide-gray-200 mt-4">
-                    {market.availableCrops?.map((c: CropMarketData) => 
-                      <div key={c.cropName} className="py-2">
-                        <p className="font-semibold">{c.cropName}</p>
-                        <p className="text-sm">Price: {c.pricePerKg} (Demand: {c.demand}, Trend: {c.priceTrend})</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ));
+            case 'market':
+                const marketsAgri = modalData as MarketInfo[];
+                return marketsAgri.map(market => {
+                    const maxPrice = Math.max(...market.availableCrops.map(c => c.pricePerKgValue), 0);
+                    return (
+                        <div key={market.marketName} className="mb-6 p-3 bg-gray-50 rounded-lg">
+                          <h4 className="font-bold text-green-700">{market.marketName} ({market.distance})</h4>
+                          <MarketPriceChart data={market.availableCrops} />
+                          <div className="mt-4 space-y-3">
+                            {market.availableCrops?.map((c: CropMarketData) => {
+                                const barWidth = maxPrice > 0 ? (c.pricePerKgValue / maxPrice) * 100 : 0;
+                                return (
+                                    <div key={c.cropName} className="py-2">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <p className="font-semibold">{c.cropName}</p>
+                                            <p className="text-sm font-medium">{c.pricePerKg}</p>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                            <div className="bg-purple-600 h-2.5 rounded-full" style={{ width: `${barWidth}%` }}></div>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs text-gray-500 mt-1">
+                                            <span>Demand: {c.demand}</span>
+                                            <span>Trend: {c.priceTrend}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                          </div>
+                        </div>
+                    );
+                });
             case 'schemes': return (modalData as GovernmentScheme[]).map(scheme => (
               <div key={scheme.name} className="mb-4 p-3 bg-gray-50 rounded-lg">
                 <h4 className="font-bold text-green-700">{scheme.name}</h4>
@@ -345,8 +437,9 @@ const App: React.FC = () => {
                     </div>
                 ))}
                 <div className="mt-6 border-t pt-4">
-                    <YieldChart data={modalData} nameKey="speciesName" valueKey="potentialYieldValue" chartTitle="Potential Yield (Tons)" barName="Yield" barColor="#34D399" />
-                    <PriceChart data={modalData} nameKey="speciesName" valueKey="avgMarketPriceValue" chartTitle="Average Market Price (per Kg)" barName="Price (₹)" barColor="#3B82F6" />
+                    {/* FIX: Removed props that are now hardcoded in the chart components, passing only the custom title. */}
+                    <YieldChart data={modalData} nameKey="speciesName" valueKey="potentialYieldValue" chartTitle="Potential Yield (Tons)" />
+                    <PriceChart data={modalData} nameKey="speciesName" valueKey="avgMarketPriceValue" chartTitle="Average Market Price (per Kg)" />
                 </div>
             </>;
             case 'doctor':
@@ -361,20 +454,37 @@ const App: React.FC = () => {
                     {/* FIX: The list item for treatment was empty. Added the treatment text `{t}` inside the `li` tag. This likely caused a cascade of parsing errors. */}
                     <ul className="list-disc list-inside ml-4">{fishData.treatment?.map((t: string) => <li key={t}>{t}</li>)}</ul>
                 </>;
-             case 'market': return (modalData as AquaMarketInfo[]).map(market => (
-                <div key={market.marketName} className="mb-6 p-3 bg-gray-50 rounded-lg">
-                  <h4 className="font-bold text-blue-700">{market.marketName} ({market.distance})</h4>
-                  <MarketPriceChart data={market.availableSpecies.map(s => ({...s, cropName: s.speciesName}))} />
-                  <div className="divide-y divide-gray-200 mt-4">
-                    {market.availableSpecies?.map((c: AquaMarketData) => 
-                      <div key={c.speciesName} className="py-2">
-                        <p className="font-semibold">{c.speciesName}</p>
-                        <p className="text-sm">Price: {c.pricePerKg} (Demand: {c.demand}, Trend: {c.priceTrend})</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ));
+             case 'market':
+                const marketsAqua = modalData as AquaMarketInfo[];
+                return marketsAqua.map(market => {
+                    const maxPrice = Math.max(...market.availableSpecies.map(s => s.pricePerKgValue), 0);
+                    return (
+                        <div key={market.marketName} className="mb-6 p-3 bg-gray-50 rounded-lg">
+                          <h4 className="font-bold text-blue-700">{market.marketName} ({market.distance})</h4>
+                          <MarketPriceChart data={market.availableSpecies.map(s => ({...s, cropName: s.speciesName}))} />
+                          <div className="mt-4 space-y-3">
+                            {market.availableSpecies?.map((c: AquaMarketData) => {
+                                const barWidth = maxPrice > 0 ? (c.pricePerKgValue / maxPrice) * 100 : 0;
+                                return (
+                                    <div key={c.speciesName} className="py-2">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <p className="font-semibold">{c.speciesName}</p>
+                                            <p className="text-sm font-medium">{c.pricePerKg}</p>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                            <div className="bg-purple-600 h-2.5 rounded-full" style={{ width: `${barWidth}%` }}></div>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs text-gray-500 mt-1">
+                                            <span>Demand: {c.demand}</span>
+                                            <span>Trend: {c.priceTrend}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                          </div>
+                        </div>
+                    );
+                });
             case 'schemes': return (modalData as AquaScheme[]).map(scheme => (
               <div key={scheme.name} className="mb-4 p-3 bg-gray-50 rounded-lg">
                 <h4 className="font-bold text-blue-700">{scheme.name}</h4>
@@ -525,6 +635,19 @@ const App: React.FC = () => {
                             placeholder={T.chatPlaceholder}
                             className="flex-grow border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
                         />
+                        <button
+                            type="button"
+                            title={!speechSupport ? 'Speech input not supported' : (isListening ? 'Stop listening' : 'Start listening')}
+                            onClick={handleToggleListening}
+                            disabled={!speechSupport}
+                            className={`p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                isListening
+                                    ? 'bg-red-500 text-white animate-pulse'
+                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                            }`}
+                        >
+                            <MicIcon />
+                        </button>
                         <button onClick={handleSendMessage} disabled={isChatLoading || !userMessage.trim()} className="bg-green-600 text-white px-4 py-2 rounded-lg disabled:bg-green-300">
                             {T.send}
                         </button>

@@ -57,16 +57,19 @@ const GenericBarChart: React.FC<GenericChartProps> = ({ data, nameKey, valueKey,
     );
 };
 
-export const YieldChart: React.FC<Omit<GenericChartProps, 'barName' | 'barColor' | 'chartTitle'>> = (props) => (
-    <GenericBarChart {...props} chartTitle="Potential Yield" barName="Yield" barColor="#34D399" />
+// FIX: Made 'chartTitle' optional in the component's props type to align with the implementation that provides a default value. This resolves the TypeScript error in App.tsx.
+export const YieldChart: React.FC<Omit<GenericChartProps, 'barName' | 'barColor' | 'chartTitle'> & { chartTitle?: string }> = ({ chartTitle = "Potential Yield", ...props }) => (
+    <GenericBarChart {...props} chartTitle={chartTitle} barName="Yield" barColor="#34D399" />
 );
 
-export const PriceChart: React.FC<Omit<GenericChartProps, 'barName' | 'barColor' | 'chartTitle'>> = (props) => (
-    <GenericBarChart {...props} chartTitle="Average Market Price" barName="Price (₹)" barColor="#3B82F6" />
+// FIX: Made 'chartTitle' optional in the component's props type to align with the implementation that provides a default value. This resolves the TypeScript error in App.tsx.
+export const PriceChart: React.FC<Omit<GenericChartProps, 'barName' | 'barColor' | 'chartTitle'> & { chartTitle?: string }> = ({ chartTitle = "Average Market Price", ...props }) => (
+    <GenericBarChart {...props} chartTitle={chartTitle} barName="Price (₹)" barColor="#3B82F6" />
 );
 
 
-export const MarketPriceChart: React.FC<{ data: CropMarketData[] }> = ({ data }) => {
+// FIX: Make the data prop more generic to accept both CropMarketData and AquaMarketData structures.
+export const MarketPriceChart: React.FC<{ data: { cropName: string, pricePerKgValue: number }[] }> = ({ data }) => {
     if (typeof window.Recharts === 'undefined') {
         return <div style={{height: 300}} className="flex items-center justify-center text-gray-500 mt-4">Loading Chart...</div>;
     }

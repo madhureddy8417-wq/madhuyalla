@@ -259,7 +259,7 @@ export const getFarmingMaterialsInfo = async (location: Location, language: Lang
 - Its name.
 - A brief description.
 - Its primary usage.
-- An estimated price range in INR.
+- An estimated price range in Indian Rupees, including the symbol (e.g., "₹500 - ₹700").
 - Suggestions for local sourcing.
 - Its current availability/stock status (e.g., 'In Stock', 'Low Stock', 'Pre-order available').
 - Instructions for online booking or purchase if available (e.g., 'Order via website [link]', 'Call [phone number] to reserve').
@@ -404,7 +404,7 @@ export const getAquaGovernmentSchemes = async (location: Location, language: Lan
 
 export const getAquaFarmingMaterialsInfo = async (location: Location, language: Language): Promise<AquaFarmingMaterial[]> => {
     const locationString = getLocationString(location);
-    const prompt = `Provide a list of 5 essential pieces of equipment or materials for aquaculture (e.g., aerators, feed, seed, water testing kits) suitable for the context of ${locationString}, Andhra Pradesh. For each item, provide its name, a brief description, its primary usage, an estimated price range, suggestions for local sourcing/brands, availability, and booking/purchase info. Please provide the entire response in the ${language} language.`;
+    const prompt = `Provide a list of 5 essential pieces of equipment or materials for aquaculture (e.g., aerators, feed, seed, water testing kits) suitable for the context of ${locationString}, Andhra Pradesh. For each item, provide its name, a brief description, its primary usage, an estimated price range in Indian Rupees, including the symbol (e.g., "₹1,500 - ₹2,000"), suggestions for local sourcing/brands, availability, and booking/purchase info. Please provide the entire response in the ${language} language.`;
     const schema = {
         type: Type.ARRAY,
         items: {
